@@ -1,164 +1,299 @@
-﻿using System;
+﻿using Castle.Facilities.Startable;
+using Castle.MicroKernel.Registration;
+using Castle.MicroKernel.Resolvers.SpecializedResolvers;
+using Castle.MicroKernel.SubSystems.Configuration;
+using Castle.Windsor;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace калькулятор_22
+namespace CalculatorCsharp
 {
-    class Program
+    public interface IOperation
     {
-        static void Main(string[] args)
+        string Name { get; }
+        double Run(params double[] numbers);
+    }
+
+    public interface IOperationProvider
+    {
+        IEnumerable<IOperation> Get();
+    }
+
+    public interface IMenu<out T>
+    {
+        IMenu<T> Show();
+        IMenuItemSelector<T> ItemSelector { get; }
+    }
+
+    public interface IMenuItemSelector<out T>
+    {
+        T Select();
+    }
+
+    public interface IOperationMenuItemSelector : IMenuItemSelector<IOperation>
+    {
+    }
+
+    public interface IMenuItemSelectorProvider
+    {
+        int GetMenuItemId();
+    }
+
+    internal class LocalInstaller : IWindsorInstaller
+    {
+        public void Install(IWindsorContainer container, IConfigurationStore store)
+        {
+            container.Register(
+                Component.For<IWindsorContainer>().Instance(container),
+                Component.For<Application>().LifestyleSingleton(),
+
+                Component.For<IOperationMenuItemSelector>()
+                    .ImplementedBy<OperationMenuItemSelector>()
+                    .LifestyleTransient(),
+
+                Component.For<IMenuItemSelectorProvider>()
+                    .ImplementedBy<OperationMenuItemSelectorView>()
+                    .LifestyleTransient(),
+
+                Component.For<IOperationProvider>()
+                    .ImplementedBy<OperationProvider>()
+                    .LifestyleSingleton(),
+
+                Component.For<IMenu<IOperation>>()
+                    .ImplementedBy<OperationMenu>()
+                    .LifestyleTransient(),
+
+                Classes.FromThisAssembly()
+                    .BasedOn<IOperation>()
+                    .WithServiceBase()
+                    .LifestyleTransient()
+            );
+        }
+    }
+
+    public class Program
+    {
+        private static IWindsorContainer _container = new WindsorContainer();
+
+        public static void Main()
+        {
+            try
+            {
+                Start();
+                var app = _container.Resolve<Application>();
+                app.Run();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+            finally
+            {
+                _container?.Dispose();
+            }
+        }
+
+        private static void Start()
+        {
+            _container.Kernel.AddFacility<StartableFacility>(f => f.DeferredStart());
+            _container.Kernel.Resolver.AddSubResolver(new CollectionResolver(_container.Kernel, true));
+            _container.Install(new LocalInstaller());
+        }
+    }
+
+    public class Application
+    {
+        private readonly IMenu<IOperation> _menu;
+
+        public Application(IMenu<IOperation> menu)
+        {
+            _menu = menu;
+        }
+
+        public void Run()
         {
             while (true)
             {
-                Console.WriteLine("Выберите операцию:");
-                Console.WriteLine("1. Сложение");
-                Console.WriteLine("2. Вычитание");
-                Console.WriteLine("3. Умножение");
-                Console.WriteLine("4. Деление");
-                Console.WriteLine("5. Возведение в степень");
-                Console.WriteLine("6. Синус");
-                Console.WriteLine("7. Косинус");
-                Console.WriteLine("8. Тангенс");
-                Console.WriteLine("9. Натуральный логарифм");
-                Console.WriteLine("10. Выход");
-
-                int choice = int.Parse(Console.ReadLine());
-
-                if (choice == 11)
-                {
-                    Console.WriteLine("Выход из программы.");
-                    break;
-                }
-
-                double result = 0;
-
-                switch (choice)
-                {
-                    case 1:
-                        result = Add();
-                        break;
-                    case 2:
-                        result = Subtract();
-                        break;
-                    case 3:
-                        result = Multiply();
-                        break;
-                    case 4:
-                        result = Divide();
-                        break;
-                    case 5:
-                        result = Power();
-                        break;
-                    case 6:
-                        result = Sin();
-                        break;
-                    case 7:
-                        result = Cos();
-                        break;
-                    case 8:
-                        result = Tan();
-                        break;
-                    case 9:
-                        result = Log();
-                        break;
-                    case 10:
-                        result = Exp();
-                        break;
-                    default:
-                        Console.WriteLine("Ошибка: некорректный выбор операции.");
-                        continue;
-                }
-
+                var operation = _menu.Show().ItemSelector.Select();
+                double result = operation.Run(10, 5); // Пример ввода данных
                 Console.WriteLine($"Результат: {result}");
+                Console.WriteLine("Нажмите 'q' для выхода или любую другую клавишу для продолжения...");
+                if (Console.ReadLine().ToLower() == "q") break;
             }
         }
+    }
 
-        static double Add()
+    public class OperationProvider : IOperationProvider
+    {
+        private readonly IEnumerable<IOperation> _operations;
+
+        public OperationProvider(IEnumerable<IOperation> operations)
         {
-            Console.Write("Введите первое число: ");
-            double a = double.Parse(Console.ReadLine());
-            Console.Write("Введите второе число: ");
-            double b = double.Parse(Console.ReadLine());
-            return a + b;
+            _operations = operations;
         }
 
-        static double Subtract()
+        public IEnumerable<IOperation> Get()
         {
-            Console.Write("Введите уменьшаемое число: ");
-            double a = double.Parse(Console.ReadLine());
-            Console.Write("Введите вычитаемое число: ");
-            double b = double.Parse(Console.ReadLine());
-            return a - b;
+            return _operations;
+        }
+    }
+
+    public class OperationMenu : IMenu<IOperation>
+    {
+        private readonly IOperationProvider _operationProvider;
+
+        public OperationMenu(IOperationProvider operationProvider, IOperationMenuItemSelector menuItemSelector)
+        {
+            _operationProvider = operationProvider;
+            ItemSelector = menuItemSelector;
         }
 
-        static double Multiply()
-        {
-            Console.Write("Введите первое число: ");
-            double a = double.Parse(Console.ReadLine());
-            Console.Write("Введите второе число: ");
-            double b = double.Parse(Console.ReadLine());
-            return a * b;
-        }
+        public IMenuItemSelector<IOperation> ItemSelector { get; }
 
-        static double Divide()
+        public IMenu<IOperation> Show()
         {
-            Console.Write("Введите делимое число: ");
-            double a = double.Parse(Console.ReadLine());
-            Console.Write("Введите делитель: ");
-            double b = double.Parse(Console.ReadLine());
-            if (b == 0)
+            Console.WriteLine("======== КАЛЬКУЛЯТОР ==========");
+            int i = 1;
+            foreach (var operation in _operationProvider.Get())
             {
-                Console.WriteLine("Ошибка: деление на ноль.");
-                return 0;
+                Console.WriteLine($"{i++}. ОПЕРАЦИЯ {operation.Name};");
             }
-            return a / b;
+            return this;
+        }
+    }
+
+    public class OperationMenuItemSelectorView : IMenuItemSelectorProvider
+    {
+        public int GetMenuItemId()
+        {
+            Console.Write("Выберите действие: ");
+            return Convert.ToInt32(Console.ReadLine());
+        }
+    }
+
+    public class OperationMenuItemSelector : IOperationMenuItemSelector
+    {
+        private readonly IMenuItemSelectorProvider _selector;
+        private readonly IOperationProvider _operationProvider;
+
+        public OperationMenuItemSelector(IMenuItemSelectorProvider selector, IOperationProvider operationProvider)
+        {
+            _selector = selector;
+            _operationProvider = operationProvider;
         }
 
-        static double Power()
+        public IOperation Select()
         {
-            Console.Write("Введите число: ");
-            double a = double.Parse(Console.ReadLine());
-            Console.Write("Введите степень: ");
-            double b = double.Parse(Console.ReadLine());
-            return Math.Pow(a, b);
+            int id = _selector.GetMenuItemId();
+            return _operationProvider.Get().ElementAt(id - 1);
+        }
+    }
+
+    public abstract class Operation : IOperation
+    {
+        protected Operation(string name)
+        {
+            Name = name;
         }
 
-        static double Sin()
-        {
-            Console.Write("Введите угол в радианах: ");
-            double angle = double.Parse(Console.ReadLine());
-            return Math.Sin(angle);
-        }
+        public string Name { get; }
 
-        static double Cos()
-        {
-            Console.Write("Введите угол в радианах: ");
-            double angle = double.Parse(Console.ReadLine());
-            return Math.Cos(angle);
-        }
+        public abstract double Run(params double[] numbers);
+    }
 
-        static double Tan()
-        {
-            Console.Write("Введите угол в радианах: ");
-            double angle = double.Parse(Console.ReadLine());
-            return Math.Tan(angle);
-        }
+    public class Addition : Operation
+    {
+        public Addition() : base("Сложение") { }
 
-        static double Log()
+        public override double Run(params double[] numbers)
         {
-            Console.Write("Введите число для вычисления натурального логарифма: ");
-            double number = double.Parse(Console.ReadLine());
-            return Math.Log(number);
+            return numbers.Sum();
         }
+    }
 
-        static double Exp()
+    public class Substraction : Operation
+    {
+        public Substraction() : base("Вычитание") { }
+
+        public override double Run(params double[] numbers)
         {
-            Console.Write("Введите число для вычисления экспоненты: ");
-            double number = double.Parse(Console.ReadLine());
-            return Math.Exp(number);
+            double result = numbers[0];
+            for (int i = 1; i < numbers.Length; i++)
+            {
+                result -= numbers[i];
+            }
+            return result;
+        }
+    }
+
+    public class Multiplication : Operation
+    {
+        public Multiplication() : base("Умножение") { }
+
+        public override double Run(params double[] numbers)
+        {
+            double result = numbers[0];
+            for (int i = 1; i < numbers.Length; i++)
+            {
+                result *= numbers[i];
+            }
+            return result;
+        }
+    }
+
+    public class Division : Operation
+    {
+        public Division() : base("Деление") { }
+
+        public override double Run(params double[] numbers)
+        {
+            double result = numbers[0];
+            for (int i = 1; i < numbers.Length; i++)
+            {
+                result /= numbers[i];
+            }
+            return result;
+        }
+    }
+
+    public class Sqrt : Operation
+    {
+        public Sqrt() : base("Квадратный корень") { }
+
+        public override double Run(params double[] numbers)
+        {
+            return Math.Sqrt(numbers[0]);
+        }
+    }
+
+    public class Cos : Operation
+    {
+        public Cos() : base("Косинус") { }
+
+        public override double Run(params double[] numbers)
+        {
+            return Math.Cos(numbers[0]);
+        }
+    }
+
+    public class Sin : Operation
+    {
+        public Sin() : base("Синус") { }
+
+        public override double Run(params double[] numbers)
+        {
+            return Math.Sin(numbers[0]);
+        }
+    }
+
+    public class Tg : Operation
+    {
+        public Tg() : base("Тангенс") { }
+
+        public override double Run(params double[] numbers)
+        {
+            return Math.Tan(numbers[0]);
         }
     }
 }
-    
