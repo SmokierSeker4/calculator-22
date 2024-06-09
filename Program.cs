@@ -116,7 +116,7 @@ namespace CalculatorCsharp
             while (true)
             {
                 var operation = _menu.Show().ItemSelector.Select();
-                double result = operation.Run(10, 5); // Пример ввода данных
+                double result = operation.Run(10, 5); 
                 Console.WriteLine($"Результат: {result}");
                 Console.WriteLine("Нажмите 'q' для выхода или любую другую клавишу для продолжения...");
                 if (Console.ReadLine().ToLower() == "q") break;
